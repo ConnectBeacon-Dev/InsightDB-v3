@@ -19,9 +19,11 @@ pip install chromadb sentence-transformers llama-cpp-python
             --include "qwen2.5-3b-instruct-q8_0.gguf" `
             --local-dir ".\models"
 
-# 5) Execute the commands
+# 5) Execute the commands for create a DB
      python json_rag_win.py index --json .\integrated_company_search.json --db .\db
-     python json_rag_win.py query --db .\db --model .\models\qwen2.5-3b-instruct-q8_0.gguf --ask "contact details of MADHYA BHARAT AGRO PRODUCTS LIMITED"
-
-# 6) Execute the shell script for running few queries
+# 6) For CLI based query using below a) section command OR For GUI based query using b) section command
+     a) python json_rag_win.py query --db .\db --model .\models\qwen2.5-3b-instruct-q8_0.gguf --ask "contact details of MADHYA BHARAT AGRO PRODUCTS LIMITED"
+     OR
+     b) python .\app_chat_rag.py
+# 7) Execute the shell script for running few queries for automation(testing purpose). Using GUI. not required
      ./run_queries.ps1
