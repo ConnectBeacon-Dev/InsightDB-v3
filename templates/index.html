@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Defense India Chatbot</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <style>
+    :root{
+      --bg:#f6f7fb; --card:#fff; --muted:#6b7280; --border:#e5e7eb; --brand:#12a150;
+      --user:#e8f3ff; --bot:#eefbf2; --error:#fee2e2; --shadow:0 6px 18px rgba(0,0,0,.06);
+    }
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);font-family:Inter,system-ui,Arial,sans-serif;color:#0f172a}
+    header{position:sticky;top:0;background:var(--brand);color:#fff;padding:14px 18px;z-index:10;box-shadow:var(--shadow)}
+    header .row{display:flex;gap:12px;align-items:center;justify-content:space-between;max-width:1100px;margin:0 auto}
+    header h1{font-size:16px;margin:0;font-weight:700}
+    header .actions{display:flex;gap:8px}
+    .btn{background:rgba(255,255,255,.18);color:#fff;border:1px solid rgba(255,255,255,.35);padding:8px 12px;border-radius:10px;font-weight:600;cursor:pointer}
+    .btn:hover{background:rgba(255,255,255,.28)}
+    main{max-width:1100px;margin:18px auto;padding:0 16px}
+    #chat{background:var(--card);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow);height:65vh;overflow:auto;padding:16px}
+    .msg{display:flex;gap:10px;margin:12px 0;align-items:flex-start}
+    .msg .avatar{width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700}
+    .msg.user .avatar{background:#1d4ed8;color:#fff}
+    .msg.bot .avatar{background:#16a34a;color:#fff}
+    .bubble{max-width:75%;background:#f8fafc;border:1px solid var(--border);border-radius:14px;padding:10px 12px;position:relative}
+    .msg.user .bubble{background:var(--user)}
+    .msg.bot .bubble{background:var(--bot)}
+    .meta{font-size:12px;color:var(--muted);margin-top:6px}
+    .thinking{font-style:italic;color:var(--muted)}
+    .typing{display:inline-flex;gap:6px;align-items:center}
+    .dot{width:6px;height:6px;border-radius:50%;background:#94a3b8;animation:bounce 1.2s infinite}
+    .dot:nth-child(2){animation-delay:.15s}
+    .dot:nth-child(3){animation-delay:.3s}
+    @keyframes bounce{0%,80%,100%{opacity:.2;transform:translateY(0)}40%{opacity:1;transform:translateY(-4px)}}
+    .composer{display:flex;gap:10px;margin-top:14px}
+    .composer textarea{flex:1;resize:none;min-height:48px;max-height:160px;padding:12px 14px;border-radius:12px;border:1px solid var(--border);outline:none}
+    .composer button{background:var(--brand);color:#fff;border:none;border-radius:12px;padding:12px 18px;font-weight:700;cursor:pointer}
+    .composer button:disabled{opacity:.6;cursor:not-allowed}
+    .msg-tools{display:flex;gap:8px;position:absolute;right:8px;top:8px}
+    .msg-tools button{border:none;background:transparent;color:#0f172a;opacity:.6;cursor:pointer}
+    .msg-tools button:hover{opacity:1}
+						  
+																																				   
+																	
+																																								 
+    .error{background:var(--error);border:1px solid #fecaca}
+    .markdown h1,.markdown h2{margin:.2em 0}
+    .markdown p{margin:.4em 0}
+    .markdown code{background:#f1f5f9;padding:.1em .3em;border-radius:6px}
+    .markdown pre{background:#0b1220;color:#e2e8f0;padding:10px;border-radius:10px;overflow:auto}
+    .markdown table{border-collapse:collapse;width:100%}
+    .markdown th,.markdown td{border:1px solid var(--border);padding:6px;text-align:left}
+  </style>
+</head>
+<body>
+<header>
+    <div class="row">
+      <h1>DPIT Chatbot</h1>
+      <div class="actions">
+        <button class="btn" id="newChat">New chat</button>
+        <button class="btn" id="exportBtn">Export .txt</button>
+      </div>
+    </div>
+  </header>
+<main>
+  <div id="chat"></div>
+
+  <div class="composer">
+    <textarea id="input" placeholder="Type or say about products, certifications (e.g., ISO 9001, NABL), expertise, R&D…"></textarea>
+    <button id="micBtn" class="icon-btn mic idle" title="Click or hold to speak">🎤</button>
+    <button id="send">Send</button>
+  </div>
+  <div class="controls">
+    <label class="switch"><input type="checkbox" id="speakToggle" checked> Speak replies</label>
+    <button id="speakReplay" class="icon-btn spk" title="Replay last answer">🔊 Play</button>
+    <span id="sttStatus" style="color:#64748b"></span>
+  </div>
+</main>
+
+<template id="msg-tpl">
+  <div class="msg">
+    <div class="avatar"></div>
+    <div class="bubble">
+      <div class="markdown"></div>
+      <div class="meta"></div>
+    </div>
+  </div>
+</template>
+
+<script>
+/* ---------- Utilities ---------- */
+const $ = (s, r=document)=>r.querySelector(s);
+const chat = $('#chat'), input = $('#input'), sendBtn = $('#send');
+const micBtn = $('#micBtn'), speakToggle = $('#speakToggle'), speakReplay = $('#speakReplay'), sttStatus = $('#sttStatus');
+
+function nowTime(){ return new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}); }
+function addMessage(role, markdownText, {id=null, error=false}={}){
+  const tpl = $('#msg-tpl'), node = tpl.content.firstElementChild.cloneNode(true);
+  node.classList.add(role);
+  node.querySelector('.avatar').textContent = role === 'user' ? 'U' : 'AI';
+  node.querySelector('.markdown').innerHTML = marked.parse(markdownText || '');
+  node.querySelector('.meta').textContent = nowTime();
+  if (error) node.querySelector('.bubble').classList.add('error');
+  if (id) node.id = id;
+  chat.appendChild(node); chat.scrollTop = chat.scrollHeight;
+  return node;
+}
+function addThinking(){
+  const id = 't-' + Date.now();
+  const n = addMessage('bot', '<span class="thinking">🤔 Thinking for best answer for you…</span>');
+  n.id = id;
+  n.querySelector('.markdown').innerHTML = '<span class="typing"><span>Thinking longer for a best answer</span><span class="dot"></span><span class="dot"></span><span class="dot"></span></span>';
+  return id;
+}
+
+/* ---------- TTS (SpeechSynthesis) ---------- */
+function pickVoice(langPrefs=['en-IN','en-GB','en-US']){
+  const voices = speechSynthesis.getVoices();
+  for (const pref of langPrefs){
+    const v = voices.find(v=>v.lang && v.lang.startsWith(pref));
+    if (v) return v;
+  }
+  return voices[0] || null;
+}
+function speakText(text){
+  if (!('speechSynthesis' in window)) return;
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  u.rate=1.0; u.pitch=1.0; u.volume=1.0;
+  const v = pickVoice(); if (v) u.voice=v;
+  speechSynthesis.speak(u);
+}
+speakReplay.addEventListener('click', ()=>{
+  const t = $('#ans') ? $('#ans').textContent.trim() : (chat.lastElementChild?.querySelector('.markdown')?.innerText || '');
+  if (t) speakText(t);
+});
+if ('speechSynthesis' in window){ speechSynthesis.onvoiceschanged = ()=>{}; }
+
+/* ---------- STT (Web Speech API) ---------- */
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let recog = null, listening = false;
+
+function postMic(status, detail=''){
+  try{ window.parent.postMessage({ type:'stt', status, detail }, '*'); }catch{}
+}
+function startRec(){ if (!recog || listening) return; try{ recog.start(); }catch{} }
+function stopRec(){ if (!recog || !listening) return; try{ recog.stop(); }catch{} }
+function toggleRec(){ if (!recog) return; listening ? stopRec() : startRec(); }
+
+if (SR){
+  recog = new SR();
+  recog.lang = 'en-IN';
+  recog.continuous = false;
+  recog.interimResults = false;
+
+  recog.onstart = ()=>{
+    listening = true; micBtn.classList.remove('idle'); micBtn.classList.add('live');
+    sttStatus.textContent = 'Listening…'; postMic('start');
+  };
+  recog.onerror = (e)=>{
+    listening = false; micBtn.classList.remove('live'); micBtn.classList.add('idle');
+    sttStatus.textContent = 'Mic error: ' + (e.error || 'unknown'); postMic('error', e.error || 'unknown');
+  };
+  recog.onend = ()=>{
+    listening = false; micBtn.classList.remove('live'); micBtn.classList.add('idle');
+    if (!input.value.trim()) sttStatus.textContent='No speech detected. Try again.'; else sttStatus.textContent='';
+    postMic('stop');
+  };
+  recog.onresult = (ev)=>{
+    const transcript = ev.results[0][0].transcript;
+    input.value = transcript; ask(); // auto send
+  };
+
+  micBtn.addEventListener('click', toggleRec);
+  micBtn.addEventListener('mousedown', startRec);
+  window.addEventListener('mouseup', stopRec);
+
+  // listen to parent header mic toggle
+  window.addEventListener('message', (ev)=>{
+    const d = ev.data || {}; if (d && d.type === 'stt:toggle') toggleRec();
+  });
+}else{
+  micBtn.disabled = true; micBtn.title = "Speech Recognition not supported (try Chrome/Edge)";
+  sttStatus.textContent = 'Voice input not supported in this browser.';
+}
+
+/* ---------- POST-SSE Polyfill ---------- */
+class EventSourcePolyfill {
+  constructor(url, {method='GET', headers={}, payload=null} = {}) {
+    this.listeners = {}; this.closed = false;
+    (async () => {
+      const res = await fetch(url, {method, headers, body: payload});
+      const reader = res.body.getReader(); const decoder = new TextDecoder();
+      let buf = '';
+      while (true) {
+        const {value, done} = await reader.read();
+        if (done || this.closed) break;
+        buf += decoder.decode(value, {stream:true});
+        let idx;
+        while ((idx = buf.indexOf('\n\n')) >= 0) {
+          const raw = buf.slice(0, idx); buf = buf.slice(idx + 2);
+          const lines = raw.split(/\r?\n/);
+          let event = 'message', data = '';
+          for (const line of lines) {
+            if (line.startsWith('event:')) event = line.slice(6).trim();
+            else if (line.startsWith('data:')) data += (data ? '\n' : '') + line.slice(5).trim();
+          }
+          (this.listeners[event]||[]).forEach(cb => cb({data}));
+        }
+      }
+    })().catch(err => (this.listeners['error']||[]).forEach(cb => cb({data: err.message})));
+  }
+  addEventListener(evt, cb){ (this.listeners[evt] ||= []).push(cb); }
+  close(){ this.closed = true; }
+}
+
+/* ---------- Ask backend (SSE) ---------- */
+function renderRows(rows){
+  const box = document.getElementById('rows') || (()=>{const d=document.createElement('div');d.id='rows';document.querySelector('main').appendChild(d);return d;})();
+  if (!rows || rows.length === 0){ box.textContent = 'No rows'; box.style.color='#64748b'; return; }
+  const cols = Object.keys(rows[0]).slice(0,6);
+  let html = '<div class="card"></div><table style="border-collapse:collapse;width:100%;font-size:13px"><thead><tr>'
+           + cols.map(c=>'<th style="border:1px solid var(--border);padding:6px;text-align:left">'+c+'</th>').join('')
+           + '</tr></thead><tbody>';
+  for (const r of rows.slice(0,20)){
+    html += '<tr>' + cols.map(c=>'<td style="border:1px solid var(--border);padding:6px;text-align:left">'+ (r[c] ?? '') +'</td>').join('') + '</tr>';
+  }
+  html += '</tbody></table>';
+  box.style.color='inherit'; box.innerHTML = html;
+}
+
+async function ask(){
+  const q = input.value.trim(); if(!q) return;
+  input.value=''; sendBtn.disabled = true; addMessage('user', q);
+  const tid = addThinking();
+
+  const sse = new EventSourcePolyfill('/ask_stream', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    payload: JSON.stringify({ query: q }),
+  });
+
+  let acc = ''; let liveNode = null;
+
+  sse.addEventListener('token', (e) => {
+    document.getElementById(tid)?.remove();
+    if (!liveNode) liveNode = addMessage('bot', '');
+    acc += JSON.parse(e.data);
+    liveNode.querySelector('.markdown').innerHTML = marked.parse(acc);
+    chat.scrollTop = chat.scrollHeight;
+  });
+
+  sse.addEventListener('done', () => {
+    sse.close(); sendBtn.disabled = false; input.focus();
+    if (speakToggle.checked && acc.trim()) speakText(acc);
+  });
+
+  sse.addEventListener('error', (e) => {
+    document.getElementById(tid)?.remove();
+    addMessage('bot', '**Error:** ' + (e?.data || 'Streaming failed'), {error:true});
+    sse.close(); sendBtn.disabled = false; input.focus();
+  });
+}
+
+sendBtn.addEventListener('click', ask);
+input.addEventListener('keydown', (e)=>{ if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); ask(); }});
+</script>
+</body>
+</html>
