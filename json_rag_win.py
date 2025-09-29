@@ -16,7 +16,8 @@ from collections import defaultdict
 import hashlib
 import gc
 import threading
-
+from typing import Optional
+import re
 import chromadb
 from sentence_transformers import SentenceTransformer
 from llama_cpp import Llama
@@ -25,8 +26,13 @@ from chromadb.utils import embedding_functions
 # ---------------- CPU / batching config ----------------
 CPU_COUNT = multiprocessing.cpu_count()
 OPTIMAL_THREADS = max(1, CPU_COUNT - 1)
-BATCH_SIZE = min(500, max(50, CPU_COUNT * 10))
+BATCH_SIZE = min(1024, max(50, CPU_COUNT * 10))
 CHUNK_SIZE = 2000
+
+LIST_TOTAL_Q = re.compile(
+    r"\b(list|show|names?|total|how\s+many|count|number\s+of)\b.*\bcompan(y|ies)\b",
+    re.IGNORECASE,
+)
 
 SYNONYMS = {
     "rd": ["research and development", "R&D", "rd facility", "rd_nabl_accredited", "high voltage lab", "laboratory"],
@@ -182,8 +188,9 @@ def flatten_company(c: Dict[str, Any]) -> Tuple[str, str, Dict[str, Any]]:
         f"Company Ref No: {refno}",
         f"Company ID: {cid}",
         f"Address: {addr}",
+        f"Contact: {contact}",
     ]
-    if contact: lines.append(f"Contact: {contact}")
+    #if contact: lines.append(f"Contact: {contact}")
     if details: lines.append(f"Details: {join_nonempty(details)}")
 
     lines.append("Products:")
@@ -346,6 +353,39 @@ def extract_signals(query: str) -> Dict[str, Any]:
 
     return signals
 
+def _friendly_total_line(coll, signals, k: int = 6) -> Optional[str]:
+    """
+    Returns 'We found {total} companies in Goa. Showing the first {n}.'
+    Only uses simple metadata check for place; if no place, returns total for whole collection.
+    """
+    locs = signals.get("locations") or {}
+    place = (locs.get("any") or "").strip()
+    try:
+        if not place:
+            total = coll.count()
+        else:
+            # lightweight meta scan
+            res_all = coll.get(include=["metadatas"])
+            metas = res_all.get("metadatas", []) or []
+            p = place.lower()
+            def m_ok(m):
+                for f in ("city","district","state","country"):
+                    if p in str(m.get(f, "")).lower():
+                        return True
+                return False
+            total = sum(1 for m in metas if m_ok(m))
+    except Exception:
+        return None
+
+    showing = min(k, total) if total else 0
+    place_txt = f" in {place.title()}" if place else ""
+    if total == 0:
+        return f"No companies were found{place_txt}."
+    if showing < total:
+        return f"We found {total} companies{place_txt}. Showing the first {showing}."
+    return f"We found {total} companies{place_txt}."
+
+
 def soft_rerank(docs: List[str], metas: List[Dict[str, Any]], signals: Dict[str, Any]) -> List[int]:
     """Score documents by matches to signals, without discarding others."""
     N = len(docs)
@@ -432,7 +472,7 @@ def answer_query(
     db_path: Path,
     model_path: Path,
     ask: str,
-    k: int = 25,
+    k: int = 6,
     max_ctx_chars: int = 12000,
     collection_name: str = "companies",
     # LLM/runtime knobs
@@ -507,19 +547,29 @@ def answer_query(
     out = llm.create_chat_completion(
         messages=messages,
         temperature=temperature,
-        max_tokens=512,
+        max_tokens=1024,
         top_p=top_p,
         repeat_penalty=repeat_penalty,
     )
     text = out["choices"][0]["message"]["content"].strip()
 
     print("\n=== ANSWER ===\n")
-    print(text)
+    #print(text)
     #print("\n=== MATCHED COMPANIES (top 10) ===")
    # for i in keep[:10]:
     #    print(f"- {metas[i].get('company_name','')}  [{ids[i]}]  "
     #          f"({metas[i].get('city','')}, {metas[i].get('state','')}, {metas[i].get('country','')})")
+    lead = None
+    if LIST_TOTAL_Q.search(ask):
+        try:
+            lead = _friendly_total_line(coll, signals, k)
+        except Exception:
+            lead = None
+    if lead:
+        print(lead)
+        print()  # blank line before the list
 
+    print(text)
     del llm
     gc.collect()
 
@@ -548,7 +598,7 @@ def main():
     apq.add_argument("--db", required=True, type=Path)
     apq.add_argument("--model", required=True, type=Path)
     apq.add_argument("--ask", required=True, type=str)
-    apq.add_argument("--k", type=int, default=25)
+    apq.add_argument("--k", type=int, default=8)
     apq.add_argument("--collection", default="companies")
     # runtime knobs (still useful)
     apq.add_argument("--max-ctx-chars", type=int, default=12000)
@@ -557,7 +607,7 @@ def main():
     apq.add_argument("--repeat-penalty", type=float, default=1.1)
     apq.add_argument("--n-threads", type=int, default=OPTIMAL_THREADS)
     apq.add_argument("--n-ctx", type=int, default=4096)
-    apq.add_argument("--n-batch", type=int, default=256)
+    apq.add_argument("--n-batch", type=int, default=1024)
     apq.add_argument("--n-gpu-layers", type=int, default=0)
     apq.add_argument("--json", dest="print_json_matches", action="store_true")
 
