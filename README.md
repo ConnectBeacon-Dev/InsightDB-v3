@@ -24,6 +24,10 @@ pip install chromadb sentence-transformers llama-cpp-python
 # 6) For CLI based query using below a) section command OR For GUI based query using b) section command
      a) python json_rag_win.py query --db .\db --model .\models\qwen2.5-3b-instruct-q8_0.gguf --ask "contact details of MADHYA BHARAT AGRO PRODUCTS LIMITED"
      OR
-     b) python .\app_chat_rag.py
+     b) python .\app_chat_rag.py for chromeDB
+     OR
+     c) python .\app_faiss_rag_chat.py
 # 7) Execute the shell script for running few queries for automation(testing purpose). Using GUI. not required
-     ./run_queries.ps1
+     ./run_queries.ps1 for chromedb
+     OR
+     ./run_queries_faiss.ps1
