@@ -21,6 +21,7 @@ import numpy as np
 import faiss
 from sentence_transformers import SentenceTransformer
 from llama_cpp import Llama
+from typing import Optional  # ensure this import exists                                              
 
 # ---------------- CPU / batching config ----------------
 CPU_COUNT = multiprocessing.cpu_count()
@@ -33,6 +34,11 @@ LIST_TOTAL_Q = re.compile(
     re.IGNORECASE,
 )
 
+# extract ISO code mentioned in the question, e.g., ISO 9001, ISO-9001:2015
+CERT_CODE_RE = re.compile(r"\biso[-\s]*([0-9]{3,5})(?:\s*:\s*\d{4})?\b", re.IGNORECASE)
+
+# MSME flag
+MSME_RE = re.compile(r"\bmsme\b", re.IGNORECASE)                                                                    
 SYNONYMS = {
     "rd": ["research and development", "R&D", "rd facility", "rd_nabl_accredited", "high voltage lab", "laboratory"],
     "testing": ["testing facility", "test lab", "nabl", "testing capabilities", "electrical testing", "insulation testing"],
@@ -469,27 +475,126 @@ def extract_signals(query: str) -> Dict[str, Any]:
 
     return signals
 
-def _friendly_total_line(store: FAISSStore, signals, k: int = 6) -> Optional[str]:
-    """Returns friendly summary line"""
-    locs = signals.get("locations") or {}
-    place = (locs.get("any") or "").strip()
+def _friendly_total_line(
+    coll,
+    signals,
+    k: int = 6,
+    question: Optional[str] = None,   # <-- NEW: pass the raw ask text
+) -> Optional[str]:
+    """
+    Returns: 'We found {total} companies in Goa. Showing the first {n}.'
+    Counts by place (city/state/country) AND by certification filters in the question:
+      - ISO NNNN (e.g., ISO 9001, ISO-27001, ISO 14001:2015)
+      - MSME
+    Falls back to whole collection size if no filters are detected.
+    """
+
+    # ---- parse location (from your existing signals) ----
+    locs = (signals or {}).get("locations") or {}
+    place = (locs.get("any") or "").strip().lower()
+    place_txt = f" in {place.title()}" if place else ""
+
+    # ---- parse certification filters from the question ----
+    q = (question or "").strip()
+    iso_codes = set()
+    for m in CERT_CODE_RE.finditer(q):
+        iso_codes.add(m.group(1))   # just the numeric part, e.g., "9001"
+    msme_flag = bool(MSME_RE.search(q))
+
+    # If no filters at all → fast count()
     try:
-        if not place:
-            total = store.count()
-        else:
-            metas = store.metadatas
-            p = place.lower()
-            def m_ok(m):
-                for f in ("city","district","state","country"):
-                    if p in str(m.get(f, "")).lower():
-                        return True
-                return False
-            total = sum(1 for m in metas if m_ok(m))
+        if not place and not iso_codes and not msme_flag:
+            total = coll.count()
+            showing = min(k, total) if total else 0
+            if total == 0:
+                return "No companies were found."
+            if showing < total:
+                return f"We found {total} companies. Showing the first {showing}."
+            return f"We found {total} companies."
+    except Exception:
+        # if count() fails, fall through to manual scan
+        pass
+
+    # ---- fetch data once (metadatas always; documents only if cert filters present) ----
+    include = ["metadatas"]
+    need_docs = bool(iso_codes or msme_flag)
+    if need_docs:
+        include.append("documents")
+
+    try:
+        res_all = coll.get(include=include)
+                                 
+             
+                                   
+                             
+                        
+                                                               
+                                                      
+                                   
+                            
+                                                    
     except Exception:
         return None
 
+    metas = res_all.get("metadatas", []) or []
+    docs = res_all.get("documents", []) if need_docs else None
+
+    # ---- helpers: location & certification checks ----
+    def loc_ok(m: dict) -> bool:
+        if not place:
+            return True
+        p = place
+        for f in ("city", "district", "state", "country"):
+            if p in str(m.get(f, "")).lower():
+                return True
+        # also check normalized fields if you created them during indexing
+        for f in ("city_norm", "state_norm"):
+            if p in str(m.get(f, "")).lower():
+                return True
+        return False
+
+    def cert_ok(idx: int, m: dict) -> bool:
+        """True if record matches any requested certification filter."""
+        if not (iso_codes or msme_flag):
+            return True  # no cert filter → pass
+
+        # prepare search text across common fields + doc (if available)
+        hay = []
+        for key in ("certifications", "certification", "certificates", "certificate",
+                    "iso", "standards", "standard", "notes", "tags"):
+            if key in m and m[key]:
+                hay.append(str(m[key]))
+        if docs is not None:
+            try:
+                hay.append(docs[idx] or "")
+            except Exception:
+                pass
+        text = " | ".join(hay).lower()
+
+        # ISO codes
+        if iso_codes:
+            for code in iso_codes:
+                # match iso 9001 / iso-9001 / iso 9001:2015
+                if re.search(rf"\biso[-\s]*{re.escape(code)}(?:\s*:\s*\d{{4}})?\b", text, re.IGNORECASE):
+                    return True
+
+        # MSME
+        if msme_flag and "msme" in text:
+            return True
+
+        return False
+
+    # ---- count that satisfies BOTH (location ∧ certification) ----
+    total = 0
+    for i, m in enumerate(metas):
+        try:
+            if loc_ok(m) and cert_ok(i, m or {}):
+                total += 1
+        except Exception:
+            continue
+
     showing = min(k, total) if total else 0
-    place_txt = f" in {place.title()}" if place else ""
+                                                       
     if total == 0:
         return f"No companies were found{place_txt}."
     if showing < total:
@@ -666,7 +771,7 @@ def answer_query(
     lead = None
     if LIST_TOTAL_Q.search(ask):
         try:
-            lead = _friendly_total_line(store, signals, k)
+            lead = _friendly_total_line(store, signals, k, question=ask)
         except Exception:
             lead = None
     if lead:
