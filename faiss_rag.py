@@ -37,8 +37,13 @@ LIST_TOTAL_Q = re.compile(
 # extract ISO code mentioned in the question, e.g., ISO 9001, ISO-9001:2015
 CERT_CODE_RE = re.compile(r"\biso[-\s]*([0-9]{3,5})(?:\s*:\s*\d{4})?\b", re.IGNORECASE)
 
+def _extract_iso_codes(question: str) -> set[str]:
+    return {m.group(1) for m in CERT_CODE_RE.finditer(question or "")}
+
 # MSME flag
-MSME_RE = re.compile(r"\bmsme\b", re.IGNORECASE)                                                                    
+MSME_RE = re.compile(r"\bmsme\b", re.IGNORECASE)
+MSME_VALUES = {"micro", "small", "medium"}
+                                                                    
 SYNONYMS = {
     "rd": ["research and development", "R&D", "rd facility", "rd_nabl_accredited", "high voltage lab", "laboratory"],
     "testing": ["testing facility", "test lab", "nabl", "testing capabilities", "electrical testing", "insulation testing"],
@@ -174,6 +179,29 @@ def normalize_bool_str(v: Any) -> str:
 def join_nonempty(parts: List[str], sep="; ") -> str:
     return sep.join(p for p in parts if p and str(p).strip().lower() != "nan")
 
+def _iso_pattern(code: str) -> re.Pattern:
+    # Matches: ISO 9001, ISO-9001, ISO 9001:2015 (case-insensitive), not as part of a longer word
+    return re.compile(rf"(?<![A-Za-z])ISO[-\s]*{re.escape(code)}(?:\s*:\s*\d{{4}})?(?![A-Za-z])", re.IGNORECASE)
+
+def _has_iso(meta: dict, doc: str, codes: set[str]) -> bool:
+    if not codes:
+        return True
+    # Build a small haystack from common meta fields + doc
+    hay = []
+    m = meta or {}
+    for key in ("certifications","certification","certificates","certificate",
+                "iso","standards","standard","notes","tags"):
+        v = m.get(key)
+        if v:
+            hay.append(str(v))
+    if doc:
+        hay.append(doc)
+    text = " | ".join(hay)
+    for code in codes:
+        if _iso_pattern(code).search(text):
+            return True
+    return False
+
 # ---------------- Document building ----------------
 def process_company_batch(companies_batch: List[Dict[str, Any]]) -> List[Tuple[str, str, Dict[str, Any]]]:
     return [flatten_company(c) for c in companies_batch]
@@ -293,16 +321,28 @@ def flatten_company(c: Dict[str, Any]) -> Tuple[str, str, Dict[str, Any]]:
     lines.append("Hints: " + ", ".join(hints))
     txt = "\n".join(lines)
 
+    scale = cd.get("company_scale", "")
     meta = {
         "company_name": name, "company_ref_no": refno, "company_id": cid,
         "city": cd.get("city",""), "district": cd.get("district",""),
         "state": cd.get("state",""), "country": cd.get("country",""),
         "website": cd.get("website",""), "email": cd.get("email",""),
+        "company_scale": scale,
     }
 
     parts = [refno, cid, slugify(name)]
     base_id = "__".join([p for p in parts if p]) or f"company_{hashlib.md5((name+refno+cid).encode('utf-8')).hexdigest()[:12]}"
     return base_id, txt, meta
+
+def _is_msme_query(question: str) -> bool:
+    return bool(MSME_RE.search(question or ""))
+
+def _is_msme_meta(meta: dict) -> bool:
+    """
+    True if 'company_scale' explicitly says Micro/Small/Medium (case-insensitive).
+    """
+    val = str((meta or {}).get("company_scale", "")).strip().lower()
+    return val in MSME_VALUES
 
 # ---------------- Indexing ----------------
 def build_index(json_path: Path, db_path: Path, collection_name: str = "companies", recreate: bool = False):
@@ -522,17 +562,7 @@ def _friendly_total_line(
         include.append("documents")
 
     try:
-        res_all = coll.get(include=include)
-                                 
-             
-                                   
-                             
-                        
-                                                               
-                                                      
-                                   
-                            
-                                                    
+        res_all = coll.get(include=include)         
     except Exception:
         return None
 
@@ -554,35 +584,36 @@ def _friendly_total_line(
         return False
 
     def cert_ok(idx: int, m: dict) -> bool:
-        """True if record matches any requested certification filter."""
+        """True if record matches requested cert filters (ISO) and/or MSME."""
+        # If no cert-like filters → pass
         if not (iso_codes or msme_flag):
-            return True  # no cert filter → pass
-
-        # prepare search text across common fields + doc (if available)
-        hay = []
-        for key in ("certifications", "certification", "certificates", "certificate",
-                    "iso", "standards", "standard", "notes", "tags"):
-            if key in m and m[key]:
-                hay.append(str(m[key]))
-        if docs is not None:
-            try:
-                hay.append(docs[idx] or "")
-            except Exception:
-                pass
-        text = " | ".join(hay).lower()
-
-        # ISO codes
-        if iso_codes:
-            for code in iso_codes:
-                # match iso 9001 / iso-9001 / iso 9001:2015
-                if re.search(rf"\biso[-\s]*{re.escape(code)}(?:\s*:\s*\d{{4}})?\b", text, re.IGNORECASE):
-                    return True
-
-        # MSME
-        if msme_flag and "msme" in text:
             return True
 
-        return False
+        # MSME must pass via company_scale (strict)
+        if msme_flag and not _is_msme_meta(m):
+            return False
+
+        # ISO filter (if present)
+        if iso_codes:
+            # build haystack only if we need ISO matching
+            hay = []
+            for key in ("certifications","certification","certificates","certificate",
+                        "iso","standards","standard","notes","tags"):
+                if key in m and m[key]:
+                    hay.append(str(m[key]))
+            if docs is not None:
+                try:
+                    hay.append(docs[idx] or "")
+                except Exception:
+                    pass
+            text = " | ".join(hay).lower()
+            for code in iso_codes:
+                if re.search(rf"\biso[-\s]*{re.escape(code)}(?:\s*:\s*\d{{4}})?\b", text, re.IGNORECASE):
+                    return True
+            return False  # ISO required but not found
+
+        # Only MSME was requested and it passed
+        return True
 
     # ---- count that satisfies BOTH (location ∧ certification) ----
     total = 0
@@ -715,7 +746,53 @@ def answer_query(
     # Extract signals and rerank
     signals = extract_signals(ask)
     ranked = soft_rerank(docs, metas, signals)
-    keep = ranked[:k] if ranked else list(range(min(k, len(docs))))
+
+    # -------- ISO STRICT FILTER (added) --------
+    iso_codes = _extract_iso_codes(ask)
+    indices = ranked[:] if ranked else list(range(len(docs)))
+
+    if iso_codes:
+        # 1) keep only items that explicitly contain the ISO code(s)
+        filtered = [i for i in indices if _has_iso(metas[i], docs[i], iso_codes)]
+
+        if not filtered:
+            # 2) fallback: scan the full corpus for any ISO matches
+            full_docs = store.documents or []
+            full_metas = store.metadatas or []
+            full_ids   = store.ids or []
+            filtered_global = [
+                i for i, (m, d) in enumerate(zip(full_metas, full_docs))
+                if _has_iso(m, d, iso_codes)
+            ]
+            if filtered_global:
+                docs, metas, ids = full_docs, full_metas, full_ids
+                indices = filtered_global
+            else:
+                indices = []
+        else:
+            indices = filtered
+    # -------------------------------------------
+
+    # Existing MSME filter: ensure only MSME when asked
+    if MSME_RE.search(ask):
+        indices = [i for i in (indices if iso_codes else (indices or ranked)) if _is_msme_meta(metas[i])]
+
+    keep = indices[:k] if indices else []
+
+    # If ISO was requested and nothing matched, bail out early (no LLM → no hallucinations)
+    if iso_codes and not keep:
+        print("\n=== ANSWER ===\n")
+        lead = None
+        if LIST_TOTAL_Q.search(ask):
+            try:
+                lead = _friendly_total_line(store, signals, k, question=ask)
+            except Exception:
+                lead = None
+        if lead:
+            print(lead)
+            print()
+        print("No companies were found.")
+        return
 
     # Build context
     selected, running = [], 0
