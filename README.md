@@ -1,6 +1,6 @@
 ## Version 3 of InsightDB
 # 1) Create & activate venv
-python -m venv .venv\llcpp .\.venv\llcpp\Scripts\activate
+python -m venv .venv\llcpp .\.venv\llcpp\Scripts\activate.
 
 # 2) Install deps
 python -m pip install --upgrade pip wheel
