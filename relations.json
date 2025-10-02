@@ -1,0 +1,128 @@
+[
+  {
+    "from_table": "CompanyCertificationDetail",
+    "from_column": "CertificateType_Fk_Id",
+    "to_table": "CertificationTypeMaster",
+    "to_column": "Id"
+  },
+  {
+    "from_table": "CompanyCertificationDetail",
+    "from_column": "CompanyMaster_Fk_Id",
+    "to_table": "CompanyMaster",
+    "to_column": "Id"
+  },
+  {
+    "from_table": "CompanyMaster",
+    "from_column": "CompanyCoreExpertise_Fk_Id",
+    "to_table": "CompanyCoreExpertiseMaster",
+    "to_column": "Id"
+  },
+  {
+    "from_table": "CompanyMaster",
+    "from_column": "CompanyScale_Fk_Id",
+    "to_table": "ScaleMaster",
+    "to_column": "Id"
+  },
+  {
+    "from_table": "CompanyMaster",
+    "from_column": "CompanyType_Fk_Id",
+    "to_table": "OrganisationTypeMaster",
+    "to_column": "Id"
+  },
+  {
+    "from_table": "CompanyMaster",
+    "from_column": "Country_Fk_id",
+    "to_table": "CountryMaster",
+    "to_column": "Id"
+  },
+  {
+    "from_table": "CompanyMaster",
+    "from_column": "IndustryDomain_Fk_Id",
+    "to_table": "IndustryDomainMaster",
+    "to_column": "Id"
+  },
+  {
+    "from_table": "CompanyMaster",
+    "from_column": "IndustrySubDomain_Fk_Id",
+    "to_table": "IndustrySubdomainType",
+    "to_column": "Id"
+  },
+  {
+    "from_table": "CompanyProducts",
+    "from_column": "CompanyMaster_FK_Id",
+    "to_table": "CompanyMaster",
+    "to_column": "Id"
+  },
+  {
+    "from_table": "CompanyProducts",
+    "from_column": "DefencePlatform_Fk_Id",
+    "to_table": "DefencePlatformMaster",
+    "to_column": "Id"
+  },
+  {
+    "from_table": "CompanyProducts",
+    "from_column": "ProductType_Fk_Id",
+    "to_table": "ProductTypeMaster",
+    "to_column": "Id"
+  },
+  {
+    "from_table": "CompanyProducts",
+    "from_column": "PTAType_Fk_Id",
+    "to_table": "PlatformTechAreaMaster",
+    "to_column": "Id"
+  },
+  {
+    "from_table": "CompanyRDFacility",
+    "from_column": "CompanyMaster_FK_ID",
+    "to_table": "CompanyMaster",
+    "to_column": "Id"
+  },
+  {
+    "from_table": "CompanyRDFacility",
+    "from_column": "RDCategory_Fk_ID",
+    "to_table": "RDCategoryMaster",
+    "to_column": "Id"
+  },
+  {
+    "from_table": "CompanyRDFacility",
+    "from_column": "RDSubCategory_Fk_Id",
+    "to_table": "RDSubCategoryMaster",
+    "to_column": "Id"
+  },
+  {
+    "from_table": "CompanyTestFacility",
+    "from_column": "CompanyMaster_FK_ID",
+    "to_table": "CompanyMaster",
+    "to_column": "Id"
+  },
+  {
+    "from_table": "CompanyTestFacility",
+    "from_column": "TestFacilityCategory_Fk_Id",
+    "to_table": "TestFacilityCategoryMaster",
+    "to_column": "Id"
+  },
+  {
+    "from_table": "CompanyTestFacility",
+    "from_column": "TestFacilitySubCategory_Fk_id",
+    "to_table": "TestFacilitySubCategoryMaster",
+    "to_column": "Id"
+  },
+  {
+    "from_table": "CompanyTurnOver",
+    "from_column": "Company_FK_Id",
+    "to_table": "CompanyMaster",
+    "to_column": "Id"
+  },
+  {
+    "from_table": "RDSubCategoryMaster",
+    "from_column": "RDCategory_Fk_Id",
+    "to_table": "RDCategoryMaster",
+    "to_column": "Id"
+  },
+  {
+    "from_table": "TestFacilitySubCategoryMaster",
+    "from_column": "TestFacility_Fk_Id",
+    "to_table": "TestFacilityCategoryMaster",
+    "to_column": "Id"
+  }
+]
