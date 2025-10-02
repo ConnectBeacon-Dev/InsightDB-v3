@@ -33,5 +33,5 @@ pip install chromadb sentence-transformers llama-cpp-python
      ./run_queries_faiss.ps1
 
 # latest changes:
-New integrated_company_search.json will create using below command: Albatrozzip.zip (all csv flies)
+New integrated_company_search.json will create using below command: Albatrozzip.zip (all csv flies).
 python zmerge_to_single_json.py --zip Albatrozzip.zip --relations relations.json --out integrated_company_search.json
